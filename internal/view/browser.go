@@ -4,6 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/client-go/util/jsonpath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,6 +78,11 @@ func (b *Browser) Init(ctx context.Context) error {
 	for _, f := range b.bindKeysFn {
 		f(b.Actions())
 	}
+
+	if _, found := b.App().Config.K9s.CustomResourceLinks[b.GVR().String()]; found {
+		b.enterFn = b.showLinkedCustomResources
+	}
+
 	b.accessor, err = dao.AccessorFor(b.app.factory, b.GVR())
 	if err != nil {
 		return err
@@ -564,4 +575,131 @@ func (b *Browser) resourceDelete(selections []string, msg string) {
 		}
 		b.refresh()
 	}, func() {})
+}
+
+func (b *Browser) showLinkedCustomResources(app *App, model ui.Tabular, gvr, path string) {
+	o, err := app.factory.Get(gvr, path, true, labels.Everything())
+	if err != nil {
+		app.Flash().Err(err)
+		return
+	}
+
+	//us, ok := o.(runtime.Unstructured)
+	//if !ok {
+	//	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(o)
+	//	if err != nil {
+	//		app.Flash().Err(err)
+	//		return
+	//	}
+	//	us = &unstructured.Unstructured{Object: m}
+	//}
+
+	resourceLink, ok := app.Config.K9s.CustomResourceLinks[gvr]
+
+	if !ok {
+		app.Flash().Err(errors.New(fmt.Sprintf("Custom resource link for resource %s not found", gvr)))
+		return
+	}
+
+	extractFromObject := func(sourceField string) ([]string, error) {
+		parser := jsonpath.New("labelSelector").AllowMissingKeys(true)
+		parser.EnableJSONOutput(true)
+		fullPath := fmt.Sprintf("{%s}", sourceField)
+		if err := parser.Parse(fullPath); err != nil {
+			app.Flash().Err(err)
+			return nil, err
+		}
+		log.Debug().Msgf("Prepared JSONPath %s.", fullPath)
+
+		var results [][]reflect.Value
+		if unstructured, ok := o.(runtime.Unstructured); ok {
+			results, err = parser.FindResults(unstructured.UnstructuredContent())
+		} else {
+			results, err = parser.FindResults(reflect.ValueOf(o).Elem().Interface())
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		log.Debug().Msgf("Results extracted %s.", results)
+
+		if len(results) != 1 {
+			return nil, nil
+		}
+
+		if err != nil {
+			return nil, nil
+		}
+		values := []string{}
+		for arrIx := range results {
+			for valIx := range results[arrIx] {
+				values = append(values, fmt.Sprint(results[arrIx][valIx].Interface()))
+			}
+		}
+
+		return values, nil
+	}
+
+	labelSelector := labels.Nothing()
+	for targetLabel, sourceField := range resourceLink.LabelSelector {
+		values, err := extractFromObject(sourceField)
+		if err != nil {
+			app.Flash().Err(err)
+			return
+		}
+		if values == nil {
+			continue
+		}
+		log.Debug().Msgf("Extracted values %+v.", values)
+
+		req, err := labels.NewRequirement(targetLabel, selection.In, values)
+		if err != nil {
+			app.Flash().Err(err)
+			return
+		}
+		labelSelector = labelSelector.Add(*req)
+	}
+
+	var fieldSelector fields.Selector
+	for targetField, sourceField := range resourceLink.FieldSelector {
+		values, err := extractFromObject(sourceField)
+		if err != nil {
+			app.Flash().Err(err)
+			return
+		}
+		if values == nil {
+			continue
+		}
+		log.Debug().Msgf("Extracted values %+v.", values)
+
+		sel := fields.OneTermEqualSelector(targetField, strings.Join(values, ","))
+		if fieldSelector == nil {
+			fieldSelector = sel
+			continue
+		}
+		fieldSelector = fields.AndSelectors(fieldSelector, sel)
+	}
+
+	log.Debug().Msgf("Generated labelSelector %s", labelSelector.String())
+	log.Debug().Msgf("Generated fieldSelector %s", fieldSelector.String())
+
+	targetGvr := client.NewGVR(resourceLink.Target)
+	targetBrowser := NewBrowser(targetGvr)
+	//targetBrowser.SetInstance(path)
+
+	targetBrowser.SetContextFn(func(ctx context.Context) context.Context {
+		ctx = context.WithValue(ctx, internal.KeyPath, path)
+		if !labelSelector.Empty() {
+			ctx = context.WithValue(ctx, internal.KeyLabels, labelSelector.String())
+		}
+		if !fieldSelector.Empty() {
+			ctx = context.WithValue(ctx, internal.KeyFields, fieldSelector.String())
+		}
+		return ctx
+	})
+
+	if err := app.inject(targetBrowser, false); err != nil {
+		app.Flash().Err(err)
+	}
 }

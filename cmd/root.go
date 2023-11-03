@@ -78,7 +78,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: file})
 
-	zerolog.SetGlobalLevel(parseLevel(*k9sFlags.LogLevel))
+	zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	app := view.NewApp(loadConfiguration())
 	if err := app.Init(version, *k9sFlags.RefreshRate); err != nil {
 		return err

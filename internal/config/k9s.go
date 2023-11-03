@@ -11,22 +11,23 @@ const (
 
 // K9s tracks K9s configuration options.
 type K9s struct {
-	RefreshRate         int                 `yaml:"refreshRate"`
-	MaxConnRetry        int                 `yaml:"maxConnRetry"`
-	EnableMouse         bool                `yaml:"enableMouse"`
-	Headless            bool                `yaml:"headless"`
-	Logoless            bool                `yaml:"logoless"`
-	Crumbsless          bool                `yaml:"crumbsless"`
-	ReadOnly            bool                `yaml:"readOnly"`
-	NoExitOnCtrlC       bool                `yaml:"noExitOnCtrlC"`
-	NoIcons             bool                `yaml:"noIcons"`
-	SkipLatestRevCheck  bool                `yaml:"skipLatestRevCheck"`
-	Logger              *Logger             `yaml:"logger"`
-	CurrentContext      string              `yaml:"currentContext"`
-	CurrentCluster      string              `yaml:"currentCluster"`
-	Clusters            map[string]*Cluster `yaml:"clusters,omitempty"`
-	Thresholds          Threshold           `yaml:"thresholds"`
-	ScreenDumpDir       string              `yaml:"screenDumpDir"`
+	RefreshRate         int                            `yaml:"refreshRate"`
+	MaxConnRetry        int                            `yaml:"maxConnRetry"`
+	EnableMouse         bool                           `yaml:"enableMouse"`
+	Headless            bool                           `yaml:"headless"`
+	Logoless            bool                           `yaml:"logoless"`
+	Crumbsless          bool                           `yaml:"crumbsless"`
+	ReadOnly            bool                           `yaml:"readOnly"`
+	NoExitOnCtrlC       bool                           `yaml:"noExitOnCtrlC"`
+	NoIcons             bool                           `yaml:"noIcons"`
+	SkipLatestRevCheck  bool                           `yaml:"skipLatestRevCheck"`
+	Logger              *Logger                        `yaml:"logger"`
+	CurrentContext      string                         `yaml:"currentContext"`
+	CurrentCluster      string                         `yaml:"currentCluster"`
+	Clusters            map[string]*Cluster            `yaml:"clusters,omitempty"`
+	Thresholds          Threshold                      `yaml:"thresholds"`
+	ScreenDumpDir       string                         `yaml:"screenDumpDir"`
+	CustomResourceLinks map[string]*CustomResourceLink `yaml:"customResourceLinks,omitempty"`
 	manualRefreshRate   int
 	manualHeadless      *bool
 	manualLogoless      *bool
@@ -39,12 +40,13 @@ type K9s struct {
 // NewK9s create a new K9s configuration.
 func NewK9s() *K9s {
 	return &K9s{
-		RefreshRate:   defaultRefreshRate,
-		MaxConnRetry:  defaultMaxConnRetry,
-		Logger:        NewLogger(),
-		Clusters:      make(map[string]*Cluster),
-		Thresholds:    NewThreshold(),
-		ScreenDumpDir: K9sDefaultScreenDumpDir,
+		RefreshRate:         defaultRefreshRate,
+		MaxConnRetry:        defaultMaxConnRetry,
+		Logger:              NewLogger(),
+		Clusters:            make(map[string]*Cluster),
+		Thresholds:          NewThreshold(),
+		ScreenDumpDir:       K9sDefaultScreenDumpDir,
+		CustomResourceLinks: make(map[string]*CustomResourceLink),
 	}
 }
 
