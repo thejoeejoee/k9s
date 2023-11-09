@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
@@ -577,22 +576,12 @@ func (b *Browser) resourceDelete(selections []string, msg string) {
 	}, func() {})
 }
 
-func (b *Browser) showLinkedCustomResources(app *App, model ui.Tabular, gvr, path string) {
+func (b *Browser) showLinkedCustomResources(app *App, _ ui.Tabular, gvr, path string) {
 	o, err := app.factory.Get(gvr, path, true, labels.Everything())
 	if err != nil {
 		app.Flash().Err(err)
 		return
 	}
-
-	//us, ok := o.(runtime.Unstructured)
-	//if !ok {
-	//	m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(o)
-	//	if err != nil {
-	//		app.Flash().Err(err)
-	//		return
-	//	}
-	//	us = &unstructured.Unstructured{Object: m}
-	//}
 
 	resourceLink, ok := app.Config.K9s.CustomResourceLinks[gvr]
 
@@ -641,7 +630,7 @@ func (b *Browser) showLinkedCustomResources(app *App, model ui.Tabular, gvr, pat
 		return values, nil
 	}
 
-	labelSelector := labels.Nothing()
+	labelSelector := labels.Everything()
 	for targetLabel, sourceField := range resourceLink.LabelSelector {
 		values, err := extractFromObject(sourceField)
 		if err != nil {
@@ -651,7 +640,7 @@ func (b *Browser) showLinkedCustomResources(app *App, model ui.Tabular, gvr, pat
 		if values == nil {
 			continue
 		}
-		log.Debug().Msgf("Extracted values %+v.", values)
+		log.Debug().Msgf("Extracted values: %+v.", values)
 
 		req, err := labels.NewRequirement(targetLabel, selection.In, values)
 		if err != nil {
@@ -661,45 +650,36 @@ func (b *Browser) showLinkedCustomResources(app *App, model ui.Tabular, gvr, pat
 		labelSelector = labelSelector.Add(*req)
 	}
 
-	var fieldSelector fields.Selector
-	for targetField, sourceField := range resourceLink.FieldSelector {
-		values, err := extractFromObject(sourceField)
-		if err != nil {
-			app.Flash().Err(err)
-			return
-		}
-		if values == nil {
-			continue
-		}
-		log.Debug().Msgf("Extracted values %+v.", values)
-
-		sel := fields.OneTermEqualSelector(targetField, strings.Join(values, ","))
-		if fieldSelector == nil {
-			fieldSelector = sel
-			continue
-		}
-		fieldSelector = fields.AndSelectors(fieldSelector, sel)
-	}
-
-	log.Debug().Msgf("Generated labelSelector %s", labelSelector.String())
-	log.Debug().Msgf("Generated fieldSelector %s", fieldSelector.String())
+	log.Debug().Msgf("Generated labelSelector: %s", labelSelector.String())
 
 	targetGvr := client.NewGVR(resourceLink.Target)
 	targetBrowser := NewBrowser(targetGvr)
-	//targetBrowser.SetInstance(path)
 
 	targetBrowser.SetContextFn(func(ctx context.Context) context.Context {
 		ctx = context.WithValue(ctx, internal.KeyPath, path)
 		if !labelSelector.Empty() {
 			ctx = context.WithValue(ctx, internal.KeyLabels, labelSelector.String())
 		}
-		if !fieldSelector.Empty() {
-			ctx = context.WithValue(ctx, internal.KeyFields, fieldSelector.String())
-		}
 		return ctx
 	})
 
 	if err := app.inject(targetBrowser, false); err != nil {
 		app.Flash().Err(err)
+	}
+
+	if resourceLink.Filter != "" {
+		values, err := extractFromObject(resourceLink.Filter)
+		if err != nil {
+			app.Flash().Err(err)
+			return
+		}
+		filter := strings.Join(values, "|")
+		log.Debug().Msgf("Using filter %s", filter)
+
+		if filter != "" {
+			app.QueueUpdateDraw(func() {
+				targetBrowser.GetTable().Filter(filter)
+			})
+		}
 	}
 }
